@@ -2,7 +2,6 @@ import json
 from datetime import datetime, timedelta
 from ics import Calendar, Event, Alarm
 
-
 DEFAULT_TIME = "09:00"
 
 
@@ -15,40 +14,31 @@ def set_time(date_obj, time_str=DEFAULT_TIME):
 def calculate_reminder(date):
     """Return reminder date based on rules."""
     if date.weekday() == 0:  # Monday
-        return date - timedelta(days=3)  # Friday
+        return date - timedelta(days=3)  # previous Friday
     return date - timedelta(days=2)
 
 
-def create_event_file(name, date, release_type=None):
-    """Create a separate ICS file for each milestone."""
-
+def create_event_file(name, date, release_date, release_type):
+    """Create a separate ICS file for each milestone with 09:00 reminder and release-date filename."""
     cal = Calendar()
     event = Event()
 
-    # Event time set at 09:00
-    event.begin = set_time(date)
     event.name = name
+    event.begin = set_time(date)
 
     # Reminder
     reminder_date = calculate_reminder(date)
     reminder_datetime = set_time(reminder_date)
-
     alarm = Alarm(trigger=reminder_datetime)
     event.alarms = [alarm]
 
     cal.events.add(event)
 
-    # ---------- Custom filename logic ----------
-    if name == "Release Date":
-        formatted = date.strftime("%Y-%m-%d")
-        if release_type.lower() == "bi-weekly":
-            filename = f"XXX_{formatted}.ics"
-        else:  # monthly
-            filename = f"ZZZ_{formatted}.ics"
-    else:
-        safe_name = name.replace(" ", "_")
-        filename = f"{safe_name}.ics"
-    # -------------------------------------------
+    # Filename
+    formatted_release_date = release_date.strftime("%Y-%m-%d")
+    prefix = "XXX" if release_type.lower() == "bi-weekly" else "ZZZ"
+    safe_name = name.replace(" ", "_")
+    filename = f"{prefix}_{formatted_release_date}_{safe_name}.ics"
 
     with open(filename, "w") as f:
         f.writelines(cal)
@@ -57,9 +47,44 @@ def create_event_file(name, date, release_type=None):
 
 
 def create_release_calendar_from_file(input_file):
-    """Reads JSON input file and creates ICS files."""
+    """Reads JSON input and creates ICS files for all milestones."""
     with open(input_file, "r") as f:
         data = json.load(f)
+
+    release_type = data["release_type"]
+    release_date = datetime.strptime(data["release_date"], "%Y-%m-%d")
+    start_uat = datetime.strptime(data["start_uat"], "%Y-%m-%d")
+    start_pat = datetime.strptime(data["start_pat"], "%Y-%m-%d")
+    pso_date = datetime.strptime(data["pso_date"], "%Y-%m-%d")
+    delivery_date = datetime.strptime(data["delivery_date"], "%Y-%m-%d")
+
+    # Derived milestones
+    test_report_creation = start_uat
+    test_completion_report = pso_date - timedelta(days=2)
+
+    # Base milestones
+    milestones = {
+        "Release Date": release_date,
+        "Start of UAT": start_uat,
+        "Start of PAT": start_pat,
+        "PSO": pso_date,
+        "Delivery Date": delivery_date,
+        "Test Report Creation": test_report_creation,
+        "Test Completion Report": test_completion_report,
+    }
+
+    # Monthly-only milestones
+    if release_type.lower() == "monthly":
+        milestones["Requirements Covered"] = start_uat
+        milestones["Requirements Completed"] = start_pat
+
+    # Create ICS files
+    for name, date in milestones.items():
+        create_event_file(name, date, release_date, release_type)
+
+
+if __name__ == "__main__":
+    create_release_calendar_from_file("release_input.json")
 
     release_type = data["release_type"]
     release_date = datetime.strptime(data["release_date"], "%Y-%m-%d")
